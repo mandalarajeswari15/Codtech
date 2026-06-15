@@ -1,0 +1,341 @@
+import { useState, useEffect } from "react";
+
+const COLORS = {
+  positive: { primary: "#4ADE80", secondary: "#16A34A", label: "Positive" },
+  negative: { primary: "#F87171", secondary: "#DC2626", label: "Negative" },
+  neutral:  { primary: "#FACC15", secondary: "#CA8A04", label: "Neutral"  },
+  mixed:    { primary: "#A78BFA", secondary: "#7C3AED", label: "Mixed"    },
+  none:     { primary: "#00D4FF", secondary: "#0088AA", label: "—"        },
+};
+
+const EXAMPLES = [
+  "I absolutely loved the new product launch! The team did an incredible job.",
+  "The service was okay, nothing special but not terrible either.",
+  "This is the worst experience I've ever had. Completely unacceptable.",
+  "I'm excited about some features but frustrated with the confusing interface.",
+];
+
+const LEXICON = {
+  positive: ["love","loved","great","amazing","excellent","wonderful","fantastic","good","best",
+    "happy","joy","excited","brilliant","perfect","awesome","outstanding","superb","glad",
+    "pleased","enjoy","enjoyed","beautiful","incredible","nice","delightful","helpful",
+    "impressive","proud","thankful","grateful","recommend","fun","easy","friendly","smooth",
+    "fast","reliable","clean","clear","effective","magnificent","splendid","terrific"],
+  negative: ["hate","hated","worst","terrible","horrible","awful","bad","poor","disappointing",
+    "disgusting","frustrated","frustrating","useless","broken","ugly","slow","difficult",
+    "confusing","annoying","wrong","boring","angry","upset","sad","unhappy","unacceptable",
+    "waste","worthless","regret","dreadful","miserable","pathetic","crash","bug","error","issue",
+    "fail","failed","failure","problem","problems","stupid","ridiculous","absurd","awful"],
+  intensifiers: ["very","extremely","absolutely","completely","totally","really","so",
+    "incredibly","utterly","highly","deeply","quite","super","especially"],
+  negators: ["not","no","never","nothing","neither","nor","without","barely","hardly","scarcely"],
+};
+
+function analyzeLocally(inputText) {
+  const lower = inputText.toLowerCase();
+  const words = lower.match(/\b\w+\b/g) || [];
+
+  let posScore = 0, negScore = 0, multiplier = 1;
+  const foundKeywords = [];
+
+  words.forEach((word, i) => {
+    const prev = words[i - 1] || "";
+    const isNegated = LEXICON.negators.includes(prev);
+    if (LEXICON.intensifiers.includes(word)) { multiplier = 1.6; return; }
+
+    if (LEXICON.positive.includes(word)) {
+      isNegated ? (negScore += 1 * multiplier) : (posScore += 1 * multiplier);
+      if (!foundKeywords.includes(word)) foundKeywords.push(word);
+    } else if (LEXICON.negative.includes(word)) {
+      isNegated ? (posScore += 0.5 * multiplier) : (negScore += 1 * multiplier);
+      if (!foundKeywords.includes(word)) foundKeywords.push(word);
+    }
+    multiplier = 1;
+  });
+
+  const total = posScore + negScore || 1;
+  const rawScore = (posScore - negScore) / Math.max(total, 3);
+  const score = Math.max(-1, Math.min(1, rawScore));
+  const absSc = Math.abs(score);
+
+  let sentiment;
+  if (posScore > 0.5 && negScore > 0.5) sentiment = "mixed";
+  else if (score > 0.15) sentiment = "positive";
+  else if (score < -0.15) sentiment = "negative";
+  else sentiment = "neutral";
+
+  const emotions = {
+    joy:      sentiment === "positive" ? 0.3 + absSc * 0.6 : sentiment === "mixed" ? 0.3 : 0.05,
+    anger:    sentiment === "negative" ? 0.2 + absSc * 0.5 : sentiment === "mixed" ? 0.2 : 0.03,
+    sadness:  sentiment === "negative" ? 0.1 + absSc * 0.4 : 0.05,
+    fear:     absSc * 0.15,
+    surprise: sentiment === "mixed" ? 0.4 : absSc * 0.2,
+    disgust:  sentiment === "negative" ? absSc * 0.35 : 0.02,
+  };
+
+  const summaryMap = {
+    positive: "Strong positive sentiment with enthusiastic and encouraging language.",
+    negative: "Negative sentiment detected — frustration and dissatisfaction are evident.",
+    neutral:  "Balanced, measured tone with no strong emotional direction.",
+    mixed:    "Mixed emotions present — both positive and negative feelings detected.",
+  };
+
+  const topKeywords = foundKeywords.slice(0, 5).length > 0
+    ? foundKeywords.slice(0, 5)
+    : words.filter(w => w.length > 4).slice(0, 4);
+
+  return {
+    sentiment,
+    score: parseFloat(score.toFixed(2)),
+    confidence: parseFloat((0.55 + absSc * 0.4).toFixed(2)),
+    emotions,
+    summary: summaryMap[sentiment],
+    keywords: topKeywords,
+  };
+}
+
+function PulseRing({ sentiment, score, isLoading }) {
+  const color = COLORS[sentiment] || COLORS.none;
+  const intensity = score !== null ? Math.abs(score) : 0;
+  const duration = isLoading ? 0.8 : Math.max(1.2, 3 - intensity * 2);
+
+  return (
+    <div style={{ position: "relative", width: 200, height: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {[1, 2, 3].map((i) => (
+        <div key={i} style={{
+          position: "absolute",
+          width: 150 + i * 18,
+          height: 150 + i * 18,
+          borderRadius: "50%",
+          border: `1px solid ${color.primary}`,
+          opacity: 0.2 / i,
+          animation: `pulse-ring ${duration + i * 0.3}s ease-in-out infinite`,
+          animationDelay: `${i * 0.2}s`,
+          transition: "all 0.6s ease",
+        }} />
+      ))}
+      <div style={{
+        width: 140, height: 140, borderRadius: "50%",
+        background: `radial-gradient(circle at 35% 35%, ${color.primary}22, ${color.secondary}44)`,
+        border: `2px solid ${color.primary}`,
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+        boxShadow: `0 0 40px ${color.primary}44, inset 0 0 30px ${color.primary}11`,
+        transition: "all 0.6s ease",
+        animation: isLoading ? "spin-slow 2s linear infinite" : "none",
+      }}>
+        {isLoading ? (
+          <div style={{ fontSize: 28, color: color.primary }}>↻</div>
+        ) : (
+          <>
+            <div style={{
+              fontSize: score !== null ? 32 : 28,
+              fontFamily: "'Space Grotesk', sans-serif",
+              fontWeight: 700, color: color.primary, lineHeight: 1, transition: "all 0.4s ease",
+            }}>
+              {score !== null ? `${score > 0 ? "+" : ""}${Math.round(score * 100)}` : "?"}
+            </div>
+            {score !== null && (
+              <div style={{ fontSize: 10, color: color.secondary, fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.15em", marginTop: 4, textTransform: "uppercase" }}>
+                score
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EmotionBar({ label, value, color }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+        <span style={{ fontSize: 11, color: "#8899AA", fontFamily: "'Space Grotesk', sans-serif", textTransform: "uppercase", letterSpacing: "0.1em" }}>{label}</span>
+        <span style={{ fontSize: 11, color: "#CBD5E1", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600 }}>{Math.round(value * 100)}%</span>
+      </div>
+      <div style={{ height: 4, background: "#1C2433", borderRadius: 2, overflow: "hidden" }}>
+        <div style={{
+          height: "100%", width: `${value * 100}%`,
+          background: `linear-gradient(90deg, ${color}99, ${color})`,
+          borderRadius: 2, transition: "width 0.8s cubic-bezier(0.4,0,0.2,1)",
+          boxShadow: `0 0 8px ${color}66`,
+        }} />
+      </div>
+    </div>
+  );
+}
+
+export default function SentimentAnalyser() {
+  const [text, setText] = useState("");
+  const [result, setResult] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const runAnalysis = async (inputText) => {
+    if (!inputText.trim()) return;
+    setIsLoading(true);
+    setResult(null);
+    await new Promise(r => setTimeout(r, 700));
+    setResult(analyzeLocally(inputText));
+    setIsLoading(false);
+  };
+
+  const handleExample = (ex) => { setText(ex); runAnalysis(ex); };
+
+  const sentiment = result?.sentiment || "none";
+  const color = COLORS[sentiment] || COLORS.none;
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#0D1117", fontFamily: "'Inter', sans-serif", color: "#E8EDF4", position: "relative", overflow: "hidden" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500&display=swap');
+        @keyframes pulse-ring { 0%,100%{opacity:0.15;transform:scale(1)} 50%{opacity:0.35;transform:scale(1.05)} }
+        @keyframes spin-slow  { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+        @keyframes fade-in    { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        textarea:focus { outline: none; }
+        textarea::placeholder { color: #3A4A5A; }
+      `}</style>
+
+      {/* Grid bg */}
+      <div style={{ position:"fixed", inset:0, pointerEvents:"none",
+        backgroundImage:"linear-gradient(rgba(0,212,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,0.03) 1px,transparent 1px)",
+        backgroundSize:"40px 40px" }} />
+
+      {/* Header */}
+      <div style={{ padding:"20px 32px", borderBottom:"1px solid #1C2433", display:"flex", alignItems:"center", gap:12, position:"relative", zIndex:1 }}>
+        <div style={{ width:8, height:8, borderRadius:"50%", background:"#00D4FF", boxShadow:"0 0 12px #00D4FF" }} />
+        <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:13, fontWeight:700, letterSpacing:"0.2em", textTransform:"uppercase", color:"#00D4FF" }}>
+          Sentiment Engine
+        </span>
+        <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
+          {["#FF5F57","#FEBC2E","#28C840"].map((c,i) => (
+            <div key={i} style={{ width:10, height:10, borderRadius:"50%", background:c, opacity:0.6 }} />
+          ))}
+        </div>
+      </div>
+
+      {/* Body */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", minHeight:"calc(100vh - 61px)", position:"relative", zIndex:1 }}>
+
+        {/* LEFT */}
+        <div style={{ padding:"28px 32px", borderRight:"1px solid #1C2433", display:"flex", flexDirection:"column", gap:20 }}>
+          <div>
+            <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:26, fontWeight:700, margin:0, lineHeight:1.25,
+              background:"linear-gradient(135deg,#E8EDF4 0%,#7AB8D4 100%)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>
+              Analyze any text.<br/>Understand the feeling.
+            </h1>
+            <p style={{ color:"#5A7A8A", fontSize:13, margin:"8px 0 0", lineHeight:1.6 }}>
+              Paste a review, message, or feedback — get instant emotional analysis, no API required.
+            </p>
+          </div>
+
+          <textarea
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder="Type or paste your text here..."
+            style={{
+              width:"100%", minHeight:180, background:"#1C2433",
+              border:"1px solid #2D3F55", borderRadius:12, padding:16,
+              color:"#E8EDF4", fontSize:14, lineHeight:1.7, resize:"vertical",
+              boxSizing:"border-box", fontFamily:"'Inter',sans-serif",
+            }}
+          />
+
+          <button
+            onClick={() => runAnalysis(text)}
+            disabled={!text.trim() || isLoading}
+            style={{
+              background: text.trim() && !isLoading ? "linear-gradient(135deg,#00D4FF22,#0088AA33)" : "#1C2433",
+              border:`1px solid ${text.trim() && !isLoading ? "#00D4FF66" : "#2D3F55"}`,
+              borderRadius:10, padding:"13px 24px",
+              color: text.trim() && !isLoading ? "#00D4FF" : "#3A4A5A",
+              fontSize:14, fontWeight:600, fontFamily:"'Space Grotesk',sans-serif",
+              cursor: text.trim() && !isLoading ? "pointer" : "not-allowed",
+              letterSpacing:"0.05em", transition:"all 0.2s",
+            }}>
+            {isLoading ? "Analyzing..." : "→ Analyze Sentiment"}
+          </button>
+
+          <div>
+            <div style={{ fontSize:11, color:"#3A4A5A", fontFamily:"'Space Grotesk',sans-serif", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:10 }}>
+              Try an example
+            </div>
+            {EXAMPLES.map((ex, i) => (
+              <button key={i} onClick={() => handleExample(ex)} style={{
+                display:"block", width:"100%", background:"transparent",
+                border:"1px solid #1C2433", borderRadius:8, padding:"8px 12px",
+                color:"#5A7A8A", fontSize:12, textAlign:"left", cursor:"pointer",
+                fontFamily:"'Inter',sans-serif", lineHeight:1.4, marginBottom:6, transition:"all 0.15s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor="#2D3F55"; e.currentTarget.style.color="#8899AA"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor="#1C2433"; e.currentTarget.style.color="#5A7A8A"; }}>
+                {ex.length > 68 ? ex.slice(0,68) + "…" : ex}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* RIGHT */}
+        <div style={{ padding:"28px 32px", display:"flex", flexDirection:"column", alignItems:"center", gap:24 }}>
+          <PulseRing sentiment={sentiment} score={result?.score ?? null} isLoading={isLoading} />
+
+          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:6, animation: result?"fade-in 0.4s ease":"none" }}>
+            <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:24, fontWeight:700, color:color.primary, textTransform:"capitalize", transition:"color 0.6s" }}>
+              {isLoading ? "Processing..." : result ? color.label : "Awaiting input"}
+            </div>
+            {result?.summary && (
+              <div style={{ fontSize:13, color:"#6B8A9A", textAlign:"center", maxWidth:280, lineHeight:1.5 }}>
+                {result.summary}
+              </div>
+            )}
+            {result?.confidence !== undefined && (
+              <div style={{ fontSize:11, color:"#3A4A5A", fontFamily:"'Space Grotesk',sans-serif", letterSpacing:"0.12em", textTransform:"uppercase" }}>
+                {Math.round(result.confidence * 100)}% confidence
+              </div>
+            )}
+          </div>
+
+          {result?.emotions && (
+            <div style={{ width:"100%", background:"#0D1117", border:"1px solid #1C2433", borderRadius:12, padding:20, animation:"fade-in 0.5s ease" }}>
+              <div style={{ fontSize:11, color:"#3A4A5A", fontFamily:"'Space Grotesk',sans-serif", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:14 }}>
+                Emotion Breakdown
+              </div>
+              {[
+                { label:"Joy",      key:"joy",      color:"#4ADE80" },
+                { label:"Anger",    key:"anger",    color:"#F87171" },
+                { label:"Sadness",  key:"sadness",  color:"#60A5FA" },
+                { label:"Fear",     key:"fear",     color:"#C084FC" },
+                { label:"Surprise", key:"surprise", color:"#FACC15" },
+                { label:"Disgust",  key:"disgust",  color:"#FB923C" },
+              ].map(({ label, key, color: c }) => (
+                <EmotionBar key={key} label={label} value={result.emotions[key] || 0} color={c} />
+              ))}
+            </div>
+          )}
+
+          {result?.keywords?.length > 0 && (
+            <div style={{ width:"100%", animation:"fade-in 0.6s ease" }}>
+              <div style={{ fontSize:11, color:"#3A4A5A", fontFamily:"'Space Grotesk',sans-serif", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:10 }}>
+                Driving Keywords
+              </div>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+                {result.keywords.map((kw, i) => (
+                  <span key={i} style={{
+                    background:`${color.primary}15`, border:`1px solid ${color.primary}33`,
+                    borderRadius:6, padding:"4px 10px", fontSize:12,
+                    color:color.primary, fontFamily:"'Space Grotesk',sans-serif", fontWeight:500,
+                  }}>{kw}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!result && !isLoading && (
+            <div style={{ textAlign:"center", color:"#2D3F55", fontSize:13, fontFamily:"'Space Grotesk',sans-serif", lineHeight:1.8 }}>
+              Enter text on the left<br/>to see emotional analysis here
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
